@@ -1,149 +1,24 @@
-# Gmail Multi-Agent Email Assistant
+# 4주차 과제: Gmail 멀티 에이전트 시스템
 
-캡쳐 예시처럼 메일을 분류하고, 스팸 DB/일정/답장/사용자 판단 필요 항목을 리포트하는 Python CLI 과제 프로젝트입니다.
+오픈소스나 외부 API(OpenAI, Ollama) 및 규칙 기반(Fallback) 방식을 활용하여 메일함을 분석하고 자동 분류하는 멀티 에이전트 프로그램입니다. 평가 시 시연 재현성을 위해 로컬 더미 데이터 모드를 기본으로 지원하도록 구현했습니다.
 
-## 빠른 실행
+## 1. 주요 기능
+* **메일 병렬 분류**: `asyncio.gather`를 활용해 수신된 메일들을 스팸, 무응답, 의사결정 필요, 자동답장 등으로 동시 분류합니다.
+* **규칙 기반 Fallback**: OpenAI API 키가 없거나 로컬 Ollama 서버가 켜져 있지 않아도 에러로 뻗지 않고, 미리 정의된 키워드 기반 규칙(`rules` 모드)으로 안전하게 전환되어 분류를 수행합니다.
+* **스팸 및 일정 충돌 관리**: 광고성 메일은 스팸 DB(`spam_db.json`)에 등록하고, 회의나 캘린더 관련 메일은 기존 일정과 대조하여 충돌 여부를 판단합니다.
+* **사용자 판단 인터랙티브 기능**: 일정 충돌이나 중요 승인 건 등 의사결정이 필요한 메일은 사용자에게 콘솔로 선택지(보류, 승인, 거절 등)를 받아 처리합니다.
+* **Gmail API 연동**: 실제 Gmail 인박스를 읽어오는 기능을 포함하고 있으며, 안전한 시연을 위해 실제 발송 대신 Draft(임시보관함 초안) 생성 및 검토 전용(`review-gmail`) 모드를 지원합니다.
 
-가장 쉬운 실행:
+## 2. 폴더 구조
+* `start.py` / `main.py`: 프로그램 실행 진입점 (메뉴형 및 CLI 제공)
+* `agent.py`: 메일 수집, 분류, 스팸, 일정, 리포트 등 핵심 에이전트 로직
+* `dummy_mails/`: 시연용 7개 더미 메일 데이터 및 발신함 저장소
+* `data/`: 기준 일정(`schedule.json`) 및 스팸 누적 DB
+* `output/` / `report/`: 실행 후 생성되는 JSON 결과물 및 마크다운 리포트
 
+## 3. 실행 방법 (Windows 환경)
+cmd 또는 터미널에서 프로젝트 폴더로 이동한 뒤 아래 명령어로 실행하거나, 폴더 내의 배치를 더블클릭합니다.
+
+### 더미 데이터 + 규칙 기반 테스트 (추천)
 ```bash
-python3 start.py
-```
-
-메뉴 없이 바로 실행:
-
-```bash
-python3 start.py --dummy
-python3 start.py --dummy --llm ollama
-python3 start.py --review-gmail --limit 20 --llm openai
-python3 start.py --gmail --limit 20 --llm auto
-python3 start.py --auth
-```
-
-Windows에서 ZIP으로 받은 경우:
-
-```text
-RUN_WINDOWS.bat
-```
-
-Windows에서 바로 더미 모드만 실행:
-
-```text
-RUN_DUMMY_WINDOWS.bat
-```
-
-Windows에서 Gmail 인증:
-
-```text
-AUTH_GMAIL_WINDOWS.bat
-```
-
-Windows에서 실제 Gmail 메일 검토만 실행:
-
-```text
-REVIEW_GMAIL_WINDOWS.bat
-```
-
-기존 상세 명령:
-
-```bash
-python main.py run --source dummy --interactive --report
-```
-
-또는 기본값으로 실행할 수 있습니다.
-
-```bash
-python main.py
-```
-
-## 출력 파일
-
-- `dummy_mails/sent_mails.json`: 더미 모드에서 자동답장한 발신 메일
-- `output/results.json`: 전체 Agent 처리 결과
-- `output/reply_drafts.json`: 생성된 답장 초안
-- `report/email_report.md`: 제출용 Markdown 리포트
-- `data/spam_db.json`: 신규 스팸 발신자 목록
-
-## LLM 설정
-
-실행할 때 LLM 방식을 선택할 수 있습니다.
-
-```bash
-python3 start.py --dummy --llm auto
-python3 start.py --dummy --llm openai
-python3 start.py --dummy --llm ollama
-python3 start.py --dummy --llm rules
-```
-
-- `auto`: OpenAI 키가 있으면 OpenAI를 우선 사용하고, 없으면 로컬 Ollama를 감지합니다. 둘 다 실패하면 규칙 기반 fallback으로 실행됩니다.
-- `openai`: 현재 환경에 연결된 OpenAI API를 우선 사용합니다.
-- `ollama`: 로컬 Ollama 서버를 사용합니다.
-- `rules`: 외부 LLM 없이 규칙 기반으로만 실행합니다.
-
-메뉴 실행인 `python3 start.py`에서는 현재 OpenAI/Ollama 감지 상태를 보여준 뒤 선택할 수 있습니다.
-
-OpenAI:
-
-```bash
-export LLM_PROVIDER=openai
-export OPENAI_API_KEY=...
-export OPENAI_MODEL=gpt-4o-mini
-```
-
-Ollama:
-
-```bash
-export LLM_PROVIDER=ollama
-export OLLAMA_BASE_URL=http://localhost:11434
-export OLLAMA_MODEL=llama3.1
-ollama serve
-ollama pull llama3.1
-```
-
-## Gmail API
-
-Gmail API는 두 가지 방식으로 사용할 수 있습니다.
-
-- 검토 전용 모드: 실제 Gmail 메일을 읽고 분류/리포트만 생성하며 Draft를 만들지 않습니다.
-- Gmail 실행 모드: 실제 Gmail 메일을 읽고, 자동답장 가능한 메일은 Gmail Draft 초안까지 생성합니다.
-
-1. Google Cloud Console에서 Gmail API를 활성화합니다.
-2. OAuth Desktop App credentials를 내려받아 `config/credentials.json`에 둡니다.
-3. 의존성을 설치합니다.
-
-```bash
-pip install -r requirements.txt
-python main.py auth-gmail
-python main.py review-gmail --limit 20 --llm auto --interactive --report
-python main.py run --source gmail --limit 20 --llm openai --interactive --report
-```
-
-가장 안전한 실제 Gmail 시연은 아래 명령입니다.
-
-```bash
-python3 start.py --review-gmail --limit 20 --llm auto
-```
-
-## 제출 문서
-
-브라우저로 아래 파일을 열면 전체 개념, 진행 내역, 실행 방법, 오류 해결 방법을 보기 좋게 확인할 수 있습니다.
-
-```text
-docs/submission_guide.html
-```
-
-## 구조
-
-```text
-config/
-data/
-dummy_mails/
-output/
-prompts/
-report/
-tools/
-agent.py
-main.py
-requirements.txt
-README.md
-```
+python start.py --dummy --llm rules
